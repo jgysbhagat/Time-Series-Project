@@ -1,0 +1,118 @@
+---
+title: "ARIMA model for forecasting median home value (per sqft) in San Francisco city"
+author: "Jigyasa Bhagat"
+date: "December 12, 2015"
+output: html_document
+---
+Data and Plot 
+We have data used is from April 1996 to October 2015
+```{r setup}
+library(dplyr)
+library(tidyr)
+zhvi=read.csv(file="~/Desktop/Reserach Study/City_MedianValuePerSqft_AllHomes.csv") %>%
+    filter(RegionName=="San Francisco") %>%
+    gather(Years,median.ppsf,7:ncol(.))
+zhvi$Years=gsub("^X","",zhvi$Years)
+tail(zhvi)
+dim(zhvi)
+ts_pricepersqft=ts(zhvi$median.ppsf,frequency=12,start = c(1996,4))
+ts_pricepersqft
+start(ts_pricepersqft)
+end(ts_pricepersqft)
+frequency(ts_pricepersqft)
+par(mfrow=c(1,1))
+plot(ts_pricepersqft,type="b",main="Medin Home Value per sqft in San Francisco",xlab="Year",ylab="Price per sqft",pch=18,col="red") # Non stationary series
+lines(ts_pricepersqft,lwd=2)
+```
+
+First order differences
+```{r cars}
+#install.packages("tseries")
+#install.packages("astsa")
+#install.packages("forecast")
+library(tseries)
+library(astsa)
+library(forecast)
+
+diff1_mppsq=diff(ts_pricepersqft,1)
+
+par(mfrow=c(1,1))
+plot.ts(diff1_mppsq,type="p",col="red",pch=16,ylab="First order difference",main="Plot of 1st order differences in time series data ") # still non stationary
+lines(diff1_mppsq)
+```
+ADF Test
+```{r pressure, echo=FALSE}
+kpss.test(diff1_mppsq,null="Trend")
+adf.test(diff1_mppsq,alternative = "stationary")
+```
+Still non stationary, 2nd order diff
+```{r}
+diff1_mppsq=diff(ts_pricepersqft,differences = 2)
+plot.ts(diff(ts_pricepersqft,differences = 2),type="p",col="red",pch=16,ylab="Second order difference",main="Plot of 2nd order differences in time series data ") # still non stationary
+lines(diff(ts_pricepersqft,differences = 2))
+kpss.test(diff(ts_pricepersqft,differences = 2),null = "Trend") # for Trend
+adf.test(diff(ts_pricepersqft,differences=2),alternative = "stationary") # for stationarity
+
+
+```
+Check Monthly Seasonality
+```{r}
+ppsm=matrix(ts_pricepersqft[10:225],ncol=12,byrow=T)
+col.means=apply(ppsm,2,mean)
+plot(col.means,type="b", main="Monthly Means Plot meadian price per sqft", xlab="Month", ylab="Mean") # This shows there is just trend  and nomonthly seasonality
+```
+Check quarterly seasonality
+```{r}
+ppsq=matrix(ts_pricepersqft[10:225],ncol=3,byrow=T)
+col.meansq=apply(ppsq,2,mean)
+plot(col.meansq,type="b", main="Quarterly Means Plot meadian price per sqft", xlab="Month", ylab="Mean")
+```
+ACF and PACF
+```{r}
+acf2(diff1_mppsq)
+```
+Final ARIMA model after multipe trials
+```{r}
+sarima(ts_pricepersqft,2,2,1)
+sarima.for(ts_pricepersqft,36,2,2,1)
+plot(forecast(Arima(ts_pricepersqft,order = c(2,2,1)), h=36))
+fit6=Arima(ts_pricepersqft,order = c(2,2,1))
+
+```
+Diagnostics
+```{r}
+library(FitAR)
+fit6=Arima(ts_pricepersqft,order = c(2,2,1))
+plot(fitted(fit6), fit6$residuals,xlab="Fitted Values",ylab="Residuals") # Constant variance
+abline(h=0)
+cbind(fitted(fit6),fit6$x,residuals(fit6))
+plot(forecast(fit6, h=36))
+plot(fit6$x, col='red')
+lines(fitted(fit6), col='blue')
+library(car)
+hist(residuals(fit6),xlab="Residuals",main="Histogram of forecast residuals of ARIMA(2,2,1)" )
+shapiro.test(residuals(fit6))
+dwt(as.vector(residuals(fit6)), alt="two.sided") # DUrbing watson test
+d = sum((fit6$residuals - lag(fit6$residuals))^2, na.rm = TRUE) /
+       sum(fit6$residuals^2, na.rm = TRUE)
+tsdisplay(residuals(fit6))
+Box.test(residuals(Arima(ts_pricepersqft,order = c(2,2,1))),lag = 36,fitdf =3,type = "Ljung-Box")
+Box.test(residuals(Arima(ts_pricepersqft,order = c(2,2,1))),lag = 36,fitdf =3,type = "Box-Pierce")
+LBQPlot(residuals(Arima(ts_pricepersqft,order = c(2,2,1))), lag.max = 36,k = 3)
+tsdiag(Arima(ts_pricepersqft,order = c(2,2,1)),which=1)
+Acf(residuals(Arima(ts_pricepersqft,order = c(2,2,1))),lag.max = 36,main="ACF of residuals of ARIMA(2,2,1)")
+Pacf(residuals(Arima(ts_pricepersqft,order = c(2,2,1))),lag.max = 36,main="PACF of residuals of ARIMA(2,2,1)")
+plot(residuals(Arima(ts_pricepersqft,order = c(2,2,1))),type="l")
+2*(1-pnorm(abs(fit6$coef)/sqrt(diag(fit6$var.coef))))# check if the coeffocoents of AR and MA are significant
+
+x <- residuals(fit6) 
+h<-hist(x, breaks=10, col="red", xlab="Forecast residuals", 
+      main="Histogram with Normal Curve") 
+xfit<-seq(min(x),max(x),length=40) 
+yfit<-dnorm(xfit,mean=mean(x),sd=sd(x)) 
+yfit <- yfit*diff(h$mids[1:2])*length(x) 
+lines(xfit, yfit, col="blue", lwd=2)
+
+```
+
+
